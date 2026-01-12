@@ -695,6 +695,11 @@ unique_ptr<GlobalTableFunctionState> TableScanInitGlobal(ClientContext &context,
 			return false;
 		}
 		D_ASSERT(index.IsBound());
+		if (!index.IsBound()) {
+			// Safety check for release builds - index should be bound after BindIndexes
+			throw InternalException("Cannot use index for scan: index '%s' is not bound after binding attempt",
+			                        index.GetIndexName());
+		}
 		auto &art = index.Cast<ART>();
 		index_scan = TryScanIndex(art, entry, column_list, input, filter_set, max_count, row_ids);
 		return index_scan;

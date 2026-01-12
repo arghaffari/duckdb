@@ -513,6 +513,10 @@ idx_t LocateErrorIndex(ConflictManager &manager, const bool is_append, const idx
 
 static string ConstructForeignKeyError(optional_idx conflict, bool is_append, Index &index, DataChunk &input) {
 	D_ASSERT(index.IsBound());
+	if (!index.IsBound()) {
+		// Safety check for release builds - this indicates a corrupted WAL or internal error
+		throw InternalException("Cannot construct foreign key error: index '%s' is not bound", index.GetIndexName());
+	}
 	auto &bound_index = index.Cast<BoundIndex>();
 	auto verify_type = is_append ? VerifyExistenceType::APPEND_FK : VerifyExistenceType::DELETE_FK;
 	return bound_index.GetConstraintViolationMessage(verify_type, conflict.GetIndex(), input);
@@ -691,6 +695,10 @@ void DataTable::VerifyUniqueIndexes(TableIndexList &indexes, optional_ptr<LocalT
 				return false;
 			}
 			D_ASSERT(index.IsBound());
+			if (!index.IsBound()) {
+				// Safety check for release builds - unbound indexes cannot verify constraints
+				throw InternalException("Cannot verify unique constraint: index '%s' is not bound", index.GetIndexName());
+			}
 			auto &art = index.Cast<ART>();
 
 			lock_guard<mutex> guard(entry.lock);
@@ -721,10 +729,18 @@ void DataTable::VerifyUniqueIndexes(TableIndexList &indexes, optional_ptr<LocalT
 			return false;
 		}
 		D_ASSERT(index.IsBound());
+		if (!index.IsBound()) {
+			// Safety check for release builds - unbound indexes cannot be used for conflict detection
+			throw InternalException("Cannot detect conflicts: index '%s' is not bound", index.GetIndexName());
+		}
 		auto &art = index.Cast<ART>();
 		if (storage) {
 			auto delete_index = storage->delete_indexes.Find(art.GetIndexName());
 			D_ASSERT(!delete_index || delete_index->IsBound());
+			if (delete_index && !delete_index->IsBound()) {
+				throw InternalException("Cannot detect conflicts: delete index '%s' is not bound",
+				                        delete_index->GetIndexName());
+			}
 			manager->AddIndex(art, delete_index);
 		} else {
 			manager->AddIndex(art, nullptr);
@@ -747,14 +763,22 @@ void DataTable::VerifyUniqueIndexes(TableIndexList &indexes, optional_ptr<LocalT
 		if (!index.IsUnique() || index.GetIndexType() != ART::TYPE_NAME) {
 			return false;
 		}
+		D_ASSERT(index.IsBound());
+		if (!index.IsBound()) {
+			// Safety check for release builds - unbound indexes cannot verify constraints
+			throw InternalException("Cannot verify unique constraint: index '%s' is not bound", index.GetIndexName());
+		}
 		if (manager->IndexMatches(index.Cast<BoundIndex>())) {
 			return false;
 		}
-		D_ASSERT(index.IsBound());
 		auto &art = index.Cast<ART>();
 		if (storage) {
 			auto delete_index = storage->delete_indexes.Find(art.GetIndexName());
 			D_ASSERT(!delete_index || delete_index->IsBound());
+			if (delete_index && !delete_index->IsBound()) {
+				throw InternalException("Cannot verify unique constraint: delete index '%s' is not bound",
+				                        delete_index->GetIndexName());
+			}
 			IndexAppendInfo index_append_info(IndexAppendMode::DEFAULT, delete_index);
 			art.VerifyAppend(chunk, index_append_info, *manager);
 		} else {
@@ -1713,6 +1737,10 @@ void DataTable::CommitDropTable() {
 	// propagate dropping this table to its indexes: frees all index memory
 	info->indexes.Scan([&](Index &index) {
 		D_ASSERT(index.IsBound());
+		// Skip unbound indexes - they don't have memory to free
+		if (!index.IsBound()) {
+			return false;
+		}
 		index.Cast<BoundIndex>().CommitDrop();
 		return false;
 	});

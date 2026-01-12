@@ -217,6 +217,10 @@ void TableIndexList::VerifyForeignKey(optional_ptr<LocalTableStorage> storage, c
 	auto &index = *entry->index;
 	lock_guard<mutex> guard(entry->lock);
 	D_ASSERT(index.IsBound());
+	if (!index.IsBound()) {
+		// Safety check for release builds - this indicates WAL corruption or internal error
+		throw InternalException("Cannot verify foreign key constraint: index '%s' is not bound", index.GetIndexName());
+	}
 	IndexAppendInfo index_append_info;
 	if (storage) {
 		auto delete_index = storage->delete_indexes.Find(index.GetIndexName());

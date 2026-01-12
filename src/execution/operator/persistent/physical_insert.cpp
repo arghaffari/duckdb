@@ -537,6 +537,10 @@ idx_t PhysicalInsert::OnConflictHandling(TableCatalogEntry &table, ExecutionCont
 				return false;
 			}
 			D_ASSERT(index.IsBound());
+			if (!index.IsBound()) {
+				// Safety check for release builds - unbound indexes cannot detect conflicts
+				throw InternalException("Cannot check for conflicts: index '%s' is not bound", index.GetIndexName());
+			}
 			if (conflict_info.ConflictTargetMatches(index)) {
 				matching_indexes.insert(index);
 			}
@@ -548,6 +552,10 @@ idx_t PhysicalInsert::OnConflictHandling(TableCatalogEntry &table, ExecutionCont
 				return false;
 			}
 			D_ASSERT(index.IsBound());
+			if (!index.IsBound()) {
+				// Safety check for release builds - unbound indexes cannot detect conflicts
+				throw InternalException("Cannot check for conflicts: local index '%s' is not bound", index.GetIndexName());
+			}
 			if (conflict_info.ConflictTargetMatches(index)) {
 				auto &bound_index = index.Cast<BoundIndex>();
 				matching_indexes.insert(bound_index);
